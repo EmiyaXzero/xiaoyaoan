@@ -10,6 +10,16 @@ from medsafe_core.normalizer import normalize_drug_name
 
 DEFAULT_SECTIONS = ["适应症", "用法用量", "常见不良反应", "禁忌", "注意事项"]
 
+_SYSTEM_PROMPT = (
+    "你是一位用药安全科普助手。任务：把药品说明书的专业段落改写成"
+    "通俗易懂的大白话，让患者和家属能看懂。"
+    "要求：\n"
+    "1. 只解释原文内容，不补充原文没有的信息；\n"
+    "2. 不给出剂量调整、停药、换药或联合用药建议；\n"
+    "3. 不承诺疗效，不使用'治愈''根治'等绝对化表述；\n"
+    "4. 结尾必须提示'具体用药请遵医嘱'。"
+)
+
 
 def _generate_plain_explanation(drug: str, section: str, raw: str) -> str:
     """基于模板将说明书段落转为大白话."""
@@ -21,6 +31,44 @@ def _generate_plain_explanation(drug: str, section: str, raw: str) -> str:
         "注意事项": f"服用「{drug}」时需要注意：{raw}",
     }
     return templates.get(section, f"关于「{drug}」的{section}：{raw}")
+
+
+def _rewrite_with_llm(drug: str, section: str, raw: str) -> str | None:
+    """使用 LLM 润色说明书内容，失败时返回 None."""
+    api_key = (
+        os.environ.get("MODELSCOPE_ACCESS_TOKEN")
+        or os.environ.get("DASHSCOPE_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
+    if not api_key:
+        return None
+
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return None
+
+    model = os.environ.get("MEDSAFE_LLM_MODEL", "stepfun-ai/Step-3.7-Flash")
+    base_url = os.environ.get("MEDSAFE_LLM_BASE_URL", "https://api-inference.modelscope.cn/v1/")
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"药品：{drug}\n章节：{section}\n原文：{raw}",
+                },
+            ],
+            temperature=0.5,
+            max_tokens=1024,
+        )
+        return response.choices[0].message.content
+    except Exception:
+        # 调用失败时回退到模板，保证服务可用
+        return None
 
 
 def explain_drug_label(drug: str, section: str | None = None) -> ExplanationResult:
@@ -60,11 +108,11 @@ def explain_drug_label(drug: str, section: str | None = None) -> ExplanationResu
 
     content = _generate_plain_explanation(canonical, selected_section, raw)
 
-    # 3. 如配置了 LLM API Key，可进一步润色（可选增强）
-    api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if api_key and selected_section in label_data:
-        # 保留扩展点：未来可调用 LLM 对 content 进行大白话润色
-        pass
+    # 3. 如配置了 LLM API Key 且样本数据命中，则调用 LLM 进一步润色
+    if selected_section in label_data:
+        llm_content = _rewrite_with_llm(canonical, selected_section, raw)
+        if llm_content:
+            content = llm_content
 
     return ExplanationResult(
         drug=canonical,

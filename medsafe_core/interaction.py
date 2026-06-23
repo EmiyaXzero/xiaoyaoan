@@ -5,6 +5,7 @@ from __future__ import annotations
 from itertools import combinations
 
 from medsafe_core.db import get_connection
+from medsafe_core.knows_client import search_drug_interaction_evidence
 from medsafe_core.models import InteractionResult, EvidenceItem, aggregate_severity
 from medsafe_core.normalizer import normalize_drug_name
 
@@ -70,6 +71,11 @@ def check_drug_interactions(drugs: list[str]) -> InteractionResult:
             if a_id is None or b_id is None:
                 continue
             evidence.extend(_query_ddi(conn, a_id, b_id))
+
+    # 本地未命中时，尝试 KnowS AI 循证检索作为补充
+    if not evidence:
+        for a, b in combinations(canonicals, 2):
+            evidence.extend(search_drug_interaction_evidence(a, b))
 
     if evidence:
         risk_level = aggregate_severity([e.severity for e in evidence])
