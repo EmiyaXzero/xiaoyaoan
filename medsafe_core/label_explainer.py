@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from medsafe_core.db import get_connection
 from medsafe_core.models import ExplanationResult
 from medsafe_core.normalizer import normalize_drug_name
+
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SECTIONS = ["适应症", "用法用量", "常见不良反应", "禁忌", "注意事项"]
 
@@ -41,16 +45,19 @@ def _rewrite_with_llm(drug: str, section: str, raw: str) -> str | None:
         or os.environ.get("OPENAI_API_KEY")
     )
     if not api_key:
+        logger.info("未配置 LLM API Key，跳过 LLM 润色")
         return None
 
     try:
         from openai import OpenAI
     except ImportError:
+        logger.warning("未安装 openai SDK，无法调用 LLM 润色")
         return None
 
     model = os.environ.get("MEDSAFE_LLM_MODEL", "stepfun-ai/Step-3.7-Flash")
     base_url = os.environ.get("MEDSAFE_LLM_BASE_URL", "https://api-inference.modelscope.cn/v1/")
 
+    logger.info(f"正在调用 LLM 润色：drug={drug}, section={section}, model={model}")
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
         response = client.chat.completions.create(
@@ -65,8 +72,11 @@ def _rewrite_with_llm(drug: str, section: str, raw: str) -> str | None:
             temperature=0.5,
             max_tokens=1024,
         )
-        return response.choices[0].message.content
-    except Exception:
+        content = response.choices[0].message.content
+        logger.info("LLM 润色成功")
+        return content
+    except Exception as exc:
+        logger.warning(f"LLM 调用失败，回退到模板输出：{exc}")
         # 调用失败时回退到模板，保证服务可用
         return None
 
