@@ -3,8 +3,8 @@
 # 核心
 rapidfuzz>=3.0.0
 
-# Studio
-gradio>=5.0.0
+# Studio（与魔搭创空间默认镜像兼容）
+gradio==5.29.0
 
 # MCP Server
 mcp>=1.0.0

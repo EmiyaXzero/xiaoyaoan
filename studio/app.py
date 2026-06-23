@@ -243,7 +243,7 @@ def on_screen_elderly(manual_text: str, file) -> str:
 
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks() as demo:
+    with gr.Blocks(css=CSS, title="小药安 MedSafe-Helper") as demo:
         gr.HTML(
             f"""
             <div class="header-title">小药安 MedSafe-Helper</div>
@@ -325,7 +325,6 @@ def main() -> None:
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        css=CSS,
     )
 
 
