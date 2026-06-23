@@ -26,13 +26,10 @@ dependencies = [
     "gradio==5.29.0",
     "mcp>=1.0.0",
     "pandas>=2.0.0",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
-llm = [
-    "openai>=1.0.0",
-    "dashscope>=1.0.0",
-]
 dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
