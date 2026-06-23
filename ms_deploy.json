@@ -1,0 +1,12 @@
+{
+  "$schema": "https://modelscope.cn/api/v1/studios/deploy_schema.json",
+  "sdk_type": "gradio",
+  "sdk_version": "5.29.0",
+  "base_image": "ubuntu22.04-py311-torch2.3.1-modelscope1.31.0",
+  "resource_configuration": "platform/2v-cpu-16g-mem",
+  "entry_file": "app.py",
+  "environment_variables": {
+    "GRADIO_SERVER_NAME": "0.0.0.0",
+    "GRADIO_SERVER_PORT": "7860"
+  }
+}
