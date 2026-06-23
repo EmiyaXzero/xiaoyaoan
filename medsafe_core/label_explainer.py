@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from medsafe_core.db import get_connection
+from medsafe_core.llm_client import BASE_SYSTEM_PROMPT, call_llm
 from medsafe_core.models import ExplanationResult
 from medsafe_core.normalizer import normalize_drug_name
 
@@ -22,14 +22,12 @@ if not logger.handlers:
 
 DEFAULT_SECTIONS = ["适应症", "用法用量", "常见不良反应", "禁忌", "注意事项"]
 
-_SYSTEM_PROMPT = (
-    "你是一位用药安全科普助手。任务：把药品说明书的专业段落改写成"
-    "通俗易懂的大白话，让患者和家属能看懂。"
+_LABEL_SYSTEM_PROMPT = (
+    BASE_SYSTEM_PROMPT
+    + "\n任务：把药品说明书的专业段落改写成通俗易懂的大白话，让患者和家属能看懂。"
     "要求：\n"
     "1. 只解释原文内容，不补充原文没有的信息；\n"
-    "2. 不给出剂量调整、停药、换药或联合用药建议；\n"
-    "3. 不承诺疗效，不使用'治愈''根治'等绝对化表述；\n"
-    "4. 结尾必须提示'具体用药请遵医嘱'。"
+    "2. 结尾必须提示'具体用药请遵医嘱'。"
 )
 
 
@@ -47,46 +45,13 @@ def _generate_plain_explanation(drug: str, section: str, raw: str) -> str:
 
 def _rewrite_with_llm(drug: str, section: str, raw: str) -> str | None:
     """使用 LLM 润色说明书内容，失败时返回 None."""
-    api_key = (
-        os.environ.get("MODELSCOPE_ACCESS_TOKEN")
-        or os.environ.get("DASHSCOPE_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
+    logger.info(f"正在调用 LLM 润色说明书：drug={drug}, section={section}")
+    return call_llm(
+        _LABEL_SYSTEM_PROMPT,
+        f"药品：{drug}\n章节：{section}\n原文：{raw}",
+        temperature=0.5,
+        max_tokens=1024,
     )
-    if not api_key:
-        logger.info("未配置 LLM API Key，跳过 LLM 润色")
-        return None
-
-    try:
-        from openai import OpenAI
-    except ImportError:
-        logger.warning("未安装 openai SDK，无法调用 LLM 润色")
-        return None
-
-    model = os.environ.get("MEDSAFE_LLM_MODEL", "stepfun-ai/Step-3.7-Flash")
-    base_url = os.environ.get("MEDSAFE_LLM_BASE_URL", "https://api-inference.modelscope.cn/v1/")
-
-    logger.info(f"正在调用 LLM 润色：drug={drug}, section={section}, model={model}")
-    try:
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"药品：{drug}\n章节：{section}\n原文：{raw}",
-                },
-            ],
-            temperature=0.5,
-            max_tokens=1024,
-        )
-        content = response.choices[0].message.content
-        logger.info("LLM 润色成功")
-        return content
-    except Exception as exc:
-        logger.warning(f"LLM 调用失败，回退到模板输出：{exc}")
-        # 调用失败时回退到模板，保证服务可用
-        return None
 
 
 def explain_drug_label(drug: str, section: str | None = None) -> ExplanationResult:

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any
 
 
-DISCLAIMER = "本结果仅供参考，不能替代医生或药师的专业建议。具体用药请遵医嘱。"
+DISCLAIMER = "本工具仅用于用药安全科普，查询结果仅供参考，不构成诊断、处方或用药调整建议。具体用药请务必咨询医生或药师。"
 
 
 SEVERITY_ORDER = ["禁忌", "高", "中", "低", "无"]

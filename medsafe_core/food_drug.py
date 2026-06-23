@@ -3,8 +3,41 @@
 from __future__ import annotations
 
 from medsafe_core.db import get_connection
+from medsafe_core.llm_client import BASE_SYSTEM_PROMPT, call_llm
 from medsafe_core.models import InteractionResult, EvidenceItem
 from medsafe_core.normalizer import normalize_drug_name
+
+
+_FOOD_DRUG_SYSTEM_PROMPT = (
+    BASE_SYSTEM_PROMPT
+    + "\n任务：判断用户给出的药品与食物/饮品之间是否存在已知冲突。"
+    "如有冲突，说明机制、风险和注意事项；如没有明确冲突，回答'未检索到明确冲突'。"
+    "不要给出停药、换药或剂量调整建议。"
+)
+
+
+def _llm_food_drug_evidence(drug: str, food: str) -> list[EvidenceItem]:
+    """本地未命中时，调用 LLM 评估食物-药物冲突."""
+    user_prompt = (
+        f"药品：{drug}\n"
+        f"食物/饮品：{food}\n\n"
+        "请判断二者是否存在已知冲突，并给出简要说明。"
+    )
+    content = call_llm(_FOOD_DRUG_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=512)
+    if not content or "未检索到明确冲突" in content:
+        return []
+
+    return [
+        EvidenceItem(
+            type="food_drug",
+            drug_a=drug,
+            food=food,
+            severity="中",
+            mechanism=content,
+            advice="该结果由大模型基于公开资料生成，仅供参考，具体用药请咨询医生或药师。",
+            source="LLM 辅助检索",
+        )
+    ]
 
 
 def check_food_drug_interaction(drug: str, food: str) -> InteractionResult:
@@ -61,8 +94,12 @@ def check_food_drug_interaction(drug: str, food: str) -> InteractionResult:
                     )
                 )
 
+    # 本地未命中时，尝试 LLM 辅助检索
+    if not evidence:
+        evidence.extend(_llm_food_drug_evidence(canonical, food_input))
+
     if evidence:
-        summary = f"{canonical} 与 {food_input} 存在 {len(evidence)} 条已知冲突提示。"
+        summary = f"{canonical} 与 {food_input} 存在 {len(evidence)} 条冲突提示。"
         risk_level = max((e.severity for e in evidence), key=lambda s: ["无", "低", "中", "高", "禁忌"].index(s))
     else:
         summary = f"未检索到 {canonical} 与 {food_input} 的已知冲突，但仍建议遵医嘱。"

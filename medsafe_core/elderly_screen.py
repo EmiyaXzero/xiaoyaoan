@@ -5,8 +5,17 @@ from __future__ import annotations
 from itertools import combinations
 
 from medsafe_core.db import get_connection
+from medsafe_core.llm_client import BASE_SYSTEM_PROMPT, call_llm
 from medsafe_core.models import ScreeningResult, EvidenceItem, aggregate_severity
 from medsafe_core.normalizer import normalize_drug_name
+
+
+_ELDERLY_SCREEN_SYSTEM_PROMPT = (
+    BASE_SYSTEM_PROMPT
+    + "\n任务：对老年人用药清单进行批量风险筛查，包括药物相互作用和单药老年风险。"
+    "列出有风险证据的组合或药品、风险类型、原因和注意事项。"
+    "不要给出停药、换药或剂量调整建议。"
+)
 
 
 def _get_drug_id(conn, name: str) -> int | None:
@@ -63,6 +72,51 @@ def _query_elderly_risks(conn, drug_id: int) -> list[EvidenceItem]:
     ]
 
 
+def _llm_interaction_evidence(meds: list[str]) -> list[EvidenceItem]:
+    """本地未命中 DDI 时，调用 LLM 评估药物相互作用."""
+    user_prompt = (
+        "请评估以下老年人用药清单中的药物相互作用风险：\n"
+        + "\n".join(f"- {m}" for m in meds)
+        + "\n\n列出有明确证据的相互作用组合、机制和注意事项。"
+    )
+    content = call_llm(_ELDERLY_SCREEN_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=1024)
+    if not content or "未检索到" in content:
+        return []
+    return [
+        EvidenceItem(
+            type="ddi",
+            drug_a=meds[0] if meds else "",
+            drug_b=meds[1] if len(meds) > 1 else "",
+            severity="中",
+            mechanism=content,
+            advice="该结果由大模型基于公开资料生成，仅供参考，具体用药请咨询医生或药师。",
+            source="LLM 辅助检索",
+        )
+    ]
+
+
+def _llm_elderly_risk_evidence(meds: list[str]) -> list[EvidenceItem]:
+    """本地未命中老年风险规则时，调用 LLM 评估单药老年风险."""
+    user_prompt = (
+        "请评估以下药品对老年人的潜在用药风险：\n"
+        + "\n".join(f"- {m}" for m in meds)
+        + "\n\n列出每种药品的风险类型、原因和注意事项。"
+    )
+    content = call_llm(_ELDERLY_SCREEN_SYSTEM_PROMPT, user_prompt, temperature=0.3, max_tokens=1024)
+    if not content or "未检索到" in content:
+        return []
+    return [
+        EvidenceItem(
+            type="elderly_risk",
+            drug_a=meds[0] if meds else "",
+            severity="中",
+            mechanism=content,
+            advice="该结果由大模型基于公开资料生成，仅供参考，具体用药请咨询医生或药师。",
+            source="LLM 辅助检索",
+        )
+    ]
+
+
 def screen_elderly_medications(meds: list[str]) -> ScreeningResult:
     """对老年人用药清单进行批量风险筛查."""
     if not meds:
@@ -104,6 +158,12 @@ def screen_elderly_medications(meds: list[str]) -> ScreeningResult:
             if drug_id is None:
                 continue
             elderly_risks.extend(_query_elderly_risks(conn, drug_id))
+
+    # 本地未命中时，尝试 LLM 辅助检索
+    if not interactions and len(canonicals) >= 2:
+        interactions.extend(_llm_interaction_evidence(canonicals))
+    if not elderly_risks:
+        elderly_risks.extend(_llm_elderly_risk_evidence(canonicals))
 
     all_severities = [e.severity for e in interactions + elderly_risks]
     risk_level = aggregate_severity(all_severities)
