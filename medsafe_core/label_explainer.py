@@ -11,6 +11,14 @@ from medsafe_core.normalizer import normalize_drug_name
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    logger.addHandler(_handler)
 
 DEFAULT_SECTIONS = ["适应症", "用法用量", "常见不良反应", "禁忌", "注意事项"]
 
@@ -83,6 +91,7 @@ def _rewrite_with_llm(drug: str, section: str, raw: str) -> str | None:
 
 def explain_drug_label(drug: str, section: str | None = None) -> ExplanationResult:
     """将药品说明书专业文本解读为通俗语言."""
+    logger.info(f"收到说明书解读请求：drug={drug}, section={section}")
     canonical = normalize_drug_name(drug)
     if canonical is None:
         return ExplanationResult(
