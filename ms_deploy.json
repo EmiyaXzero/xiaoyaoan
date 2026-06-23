@@ -1,0 +1,12 @@
+{
+  "app_name": "小药安 MedSafe-Helper",
+  "description": "用药安全科普助手：药物相互作用、食物-药物冲突、说明书解读、老年用药筛查",
+  "entry_file": "studio/app.py",
+  "python_version": "3.10",
+  "requirements": "requirements.txt",
+  "env": {
+    "GRADIO_SERVER_NAME": "0.0.0.0",
+    "GRADIO_SERVER_PORT": "7860"
+  },
+  "tags": ["医疗", "用药安全", "药物相互作用", "科普"]
+}
